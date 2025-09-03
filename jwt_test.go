@@ -1,8 +1,8 @@
 package cjwt_test
 
 import (
-	"cjwt"
 	"fmt"
+	"github.com/bi0dread/cjwt"
 	"testing"
 	"time"
 )

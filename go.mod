@@ -1,4 +1,4 @@
-module cjwt
+module github.com/bi0dread/cjwt
 
 go 1.23
 

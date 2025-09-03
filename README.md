@@ -50,7 +50,7 @@ A comprehensive, production-ready JWT (JSON Web Token) and Opaque Token library 
 ## Installation
 
 ```bash
-go get github.com/your-username/cjwt
+go get github.com/bi0dread/cjwt
 ```
 
 ## Package Structure
@@ -134,7 +134,7 @@ import (
     "fmt"
     "log"
     "time"
-    "cjwt"
+    "github.com/bi0dread/cjwt"
 )
 
 func main() {
@@ -184,7 +184,7 @@ import (
     "fmt"
     "log"
     "time"
-    "cjwt/opaque"
+    "github.com/bi0dread/cjwt/opaque"
 )
 
 func main() {
@@ -233,7 +233,7 @@ import (
     "fmt"
     "log"
     "time"
-    "cjwt/encryption"
+    "github.com/bi0dread/cjwt/encryption"
 )
 
 func main() {
@@ -316,7 +316,7 @@ import (
     "fmt"
     "log"
     "time"
-    "cjwt/tokenmaker"
+    "github.com/bi0dread/cjwt/tokenmaker"
 )
 
 func main() {
@@ -667,7 +667,7 @@ package main
 import (
     "fmt"
     "log"
-    "cjwt/encryption"
+    "github.com/bi0dread/cjwt/encryption"
 )
 
 func main() {
@@ -723,7 +723,7 @@ package main
 import (
     "fmt"
     "log"
-    "cjwt/encryption"
+    "github.com/bi0dread/cjwt/encryption"
 )
 
 func main() {
@@ -807,7 +807,7 @@ import (
     "fmt"
     "log"
     "time"
-    "cjwt/encryption"
+    "github.com/bi0dread/cjwt/encryption"
 )
 
 func main() {
