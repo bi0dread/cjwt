@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"cjwt/encryption"
+	"github.com/bi0dread/cjwt/encryption"
 )
 
 func main() {

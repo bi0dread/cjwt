@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"cjwt/opaque"
+	"github.com/bi0dread/cjwt/opaque"
 )
 
 func main() {

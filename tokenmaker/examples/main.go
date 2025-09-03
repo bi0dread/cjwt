@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"cjwt"
-	"cjwt/tokenmaker"
+	"github.com/bi0dread/cjwt"
+	"github.com/bi0dread/cjwt/tokenmaker"
 )
 
 func main() {

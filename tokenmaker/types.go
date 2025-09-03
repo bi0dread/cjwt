@@ -1,8 +1,9 @@
 package tokenmaker
 
 import (
-	"cjwt/opaque"
 	"time"
+
+	"github.com/bi0dread/cjwt/opaque"
 )
 
 // TokenType represents the type of token to generate

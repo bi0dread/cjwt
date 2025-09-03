@@ -1,9 +1,10 @@
 package opaque_test
 
 import (
-	"cjwt/opaque"
 	"testing"
 	"time"
+
+	"github.com/bi0dread/cjwt/opaque"
 )
 
 func TestOpaqueTokenManager_GenerateToken(t *testing.T) {

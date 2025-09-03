@@ -1,11 +1,12 @@
 package tokenmaker_test
 
 import (
-	"cjwt"
-	"cjwt/tokenmaker"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/bi0dread/cjwt"
+	"github.com/bi0dread/cjwt/tokenmaker"
 )
 
 func TestTokenMaker_JWTToken(t *testing.T) {

@@ -1,10 +1,11 @@
 package main
 
 import (
-	"cjwt"
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/bi0dread/cjwt"
 )
 
 func main() {

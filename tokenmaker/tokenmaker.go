@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"cjwt"
-	"cjwt/opaque"
+	"github.com/bi0dread/cjwt"
+	"github.com/bi0dread/cjwt/opaque"
 )
 
 // TokenMaker provides a unified interface for creating and managing different types of tokens
