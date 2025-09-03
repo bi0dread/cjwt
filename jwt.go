@@ -1,33 +1,219 @@
 package cjwt
 
 import (
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// JWTManager handles JWT operations
+// JWTManager handles JWT operations with support for multiple signing methods
 type JWTManager struct {
+	// RSA keys
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
+
+	// ECDSA keys
+	ecdsaPrivateKey *ecdsa.PrivateKey
+	ecdsaPublicKey  *ecdsa.PublicKey
+
+	// HMAC key
+	hmacKey []byte
+
+	// Key management
+	keyManager *KeyManager
+
+	// Metrics and logging
+	metrics    *TokenMetrics
+	auditLogs  []TokenAuditLog
+	metricsMux sync.RWMutex
+	logsMux    sync.RWMutex
+
+	// Configuration
+	defaultSigningMethod SigningMethod
+}
+
+// KeyManager handles key rotation and management
+type KeyManager struct {
+	currentKeyID string
+	keys         map[string]interface{} // keyID -> key
+	keyHistory   map[string]KeyInfo
+	gracePeriod  time.Duration
+	mutex        sync.RWMutex
+}
+
+// NewKeyManager creates a new key manager
+func NewKeyManager() *KeyManager {
+	return &KeyManager{
+		keys:        make(map[string]interface{}),
+		keyHistory:  make(map[string]KeyInfo),
+		gracePeriod: 24 * time.Hour, // Default grace period
+	}
 }
 
 // NewJWTManager creates a new JWT manager with RSA keys
 func NewJWTManager(privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey) *JWTManager {
+	keyManager := NewKeyManager()
+	keyID := uuid.New().String()
+
+	// Store the initial key
+	keyManager.mutex.Lock()
+	keyManager.currentKeyID = keyID
+	keyManager.keys[keyID] = privateKey
+	keyManager.keyHistory[keyID] = KeyInfo{
+		KeyID:     keyID,
+		Algorithm: string(RS256),
+		CreatedAt: time.Now(),
+		IsActive:  true,
+	}
+	keyManager.mutex.Unlock()
+
 	return &JWTManager{
-		privateKey: privateKey,
-		publicKey:  publicKey,
+		privateKey:           privateKey,
+		publicKey:            publicKey,
+		keyManager:           keyManager,
+		metrics:              &TokenMetrics{LastReset: time.Now()},
+		auditLogs:            make([]TokenAuditLog, 0),
+		defaultSigningMethod: RS256,
+	}
+}
+
+// NewJWTManagerWithECDSA creates a new JWT manager with ECDSA keys
+func NewJWTManagerWithECDSA(privateKey *ecdsa.PrivateKey, publicKey *ecdsa.PublicKey) *JWTManager {
+	keyManager := NewKeyManager()
+	keyID := uuid.New().String()
+
+	keyManager.mutex.Lock()
+	keyManager.currentKeyID = keyID
+	keyManager.keys[keyID] = privateKey
+	keyManager.keyHistory[keyID] = KeyInfo{
+		KeyID:     keyID,
+		Algorithm: string(ES256),
+		CreatedAt: time.Now(),
+		IsActive:  true,
+	}
+	keyManager.mutex.Unlock()
+
+	return &JWTManager{
+		ecdsaPrivateKey:      privateKey,
+		ecdsaPublicKey:       publicKey,
+		keyManager:           keyManager,
+		metrics:              &TokenMetrics{LastReset: time.Now()},
+		auditLogs:            make([]TokenAuditLog, 0),
+		defaultSigningMethod: ES256,
+	}
+}
+
+// NewJWTManagerWithHMAC creates a new JWT manager with HMAC key
+func NewJWTManagerWithHMAC(key []byte) *JWTManager {
+	keyManager := NewKeyManager()
+	keyID := uuid.New().String()
+
+	keyManager.mutex.Lock()
+	keyManager.currentKeyID = keyID
+	keyManager.keys[keyID] = key
+	keyManager.keyHistory[keyID] = KeyInfo{
+		KeyID:     keyID,
+		Algorithm: string(HS256),
+		CreatedAt: time.Now(),
+		IsActive:  true,
+	}
+	keyManager.mutex.Unlock()
+
+	return &JWTManager{
+		hmacKey:              key,
+		keyManager:           keyManager,
+		metrics:              &TokenMetrics{LastReset: time.Now()},
+		auditLogs:            make([]TokenAuditLog, 0),
+		defaultSigningMethod: HS256,
 	}
 }
 
 // GenerateToken creates a new JWT token with the provided claims
 func (jm *JWTManager) GenerateToken(req JWTRequest) (*JWTResponse, error) {
-	if jm.privateKey == nil {
-		return nil, errors.New("private key is required for token generation")
+	return jm.GenerateTokenWithMethod(req, jm.defaultSigningMethod)
+}
+
+// GenerateTokenWithMethod creates a new JWT token with the specified signing method
+func (jm *JWTManager) GenerateTokenWithMethod(req JWTRequest, method SigningMethod) (*JWTResponse, error) {
+	startTime := time.Now()
+	tokenID := uuid.New().String()
+
+	// Log the operation
+	jm.logAuditEvent(TokenAuditLog{
+		Timestamp: startTime,
+		Action:    "generate",
+		UserID:    req.Subject,
+		TokenID:   tokenID,
+		Success:   false, // Will be updated on success
+	})
+
+	// Update metrics
+	jm.updateMetrics(func(m *TokenMetrics) {
+		m.GeneratedTokens++
+	})
+
+	var signingMethod jwt.SigningMethod
+	var signingKey interface{}
+
+	switch method {
+	case RS256:
+		if jm.privateKey == nil {
+			jm.logAuditEvent(TokenAuditLog{
+				Timestamp: time.Now(),
+				Action:    "generate",
+				UserID:    req.Subject,
+				TokenID:   tokenID,
+				Success:   false,
+				ErrorMsg:  "RSA private key not available",
+			})
+			return nil, errors.New("RSA private key is required for RS256")
+		}
+		signingMethod = jwt.SigningMethodRS256
+		signingKey = jm.privateKey
+	case ES256:
+		if jm.ecdsaPrivateKey == nil {
+			jm.logAuditEvent(TokenAuditLog{
+				Timestamp: time.Now(),
+				Action:    "generate",
+				UserID:    req.Subject,
+				TokenID:   tokenID,
+				Success:   false,
+				ErrorMsg:  "ECDSA private key not available",
+			})
+			return nil, errors.New("ECDSA private key is required for ES256")
+		}
+		signingMethod = jwt.SigningMethodES256
+		signingKey = jm.ecdsaPrivateKey
+	case HS256:
+		if jm.hmacKey == nil {
+			jm.logAuditEvent(TokenAuditLog{
+				Timestamp: time.Now(),
+				Action:    "generate",
+				UserID:    req.Subject,
+				TokenID:   tokenID,
+				Success:   false,
+				ErrorMsg:  "HMAC key not available",
+			})
+			return nil, errors.New("HMAC key is required for HS256")
+		}
+		signingMethod = jwt.SigningMethodHS256
+		signingKey = jm.hmacKey
+	default:
+		jm.logAuditEvent(TokenAuditLog{
+			Timestamp: time.Now(),
+			Action:    "generate",
+			UserID:    req.Subject,
+			TokenID:   tokenID,
+			Success:   false,
+			ErrorMsg:  "unsupported signing method",
+		})
+		return nil, fmt.Errorf("unsupported signing method: %s", method)
 	}
 
 	// Set default values
@@ -36,7 +222,7 @@ func (jm *JWTManager) GenerateToken(req JWTRequest) (*JWTResponse, error) {
 		req.IssuedAt = &now
 	}
 	if req.JWTID == "" {
-		req.JWTID = uuid.New().String()
+		req.JWTID = tokenID
 	}
 
 	// Create claims map
@@ -68,9 +254,17 @@ func (jm *JWTManager) GenerateToken(req JWTRequest) (*JWTResponse, error) {
 	}
 
 	// Create and sign the token
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	tokenString, err := token.SignedString(jm.privateKey)
+	token := jwt.NewWithClaims(signingMethod, claims)
+	tokenString, err := token.SignedString(signingKey)
 	if err != nil {
+		jm.logAuditEvent(TokenAuditLog{
+			Timestamp: time.Now(),
+			Action:    "generate",
+			UserID:    req.Subject,
+			TokenID:   tokenID,
+			Success:   false,
+			ErrorMsg:  fmt.Sprintf("failed to sign token: %v", err),
+		})
 		return nil, fmt.Errorf("failed to sign token: %w", err)
 	}
 
@@ -83,7 +277,35 @@ func (jm *JWTManager) GenerateToken(req JWTRequest) (*JWTResponse, error) {
 		JWTID:     req.JWTID,
 	}
 
+	// Log successful generation
+	jm.logAuditEvent(TokenAuditLog{
+		Timestamp: time.Now(),
+		Action:    "generate",
+		UserID:    req.Subject,
+		TokenID:   tokenID,
+		Success:   true,
+		Claims:    claims,
+	})
+
 	return response, nil
+}
+
+// Helper functions for metrics and audit logging
+func (jm *JWTManager) updateMetrics(updateFunc func(*TokenMetrics)) {
+	jm.metricsMux.Lock()
+	defer jm.metricsMux.Unlock()
+	updateFunc(jm.metrics)
+}
+
+func (jm *JWTManager) logAuditEvent(log TokenAuditLog) {
+	jm.logsMux.Lock()
+	defer jm.logsMux.Unlock()
+	jm.auditLogs = append(jm.auditLogs, log)
+
+	// Keep only last 1000 logs to prevent memory issues
+	if len(jm.auditLogs) > 1000 {
+		jm.auditLogs = jm.auditLogs[len(jm.auditLogs)-1000:]
+	}
 }
 
 // VerifyToken verifies a JWT token and returns its claims

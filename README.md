@@ -6,9 +6,13 @@ A clean, well-structured JWT (JSON Web Token) library for Go that supports both 
 
 - ✅ **Standard JWT Claims**: Support for all standard JWT claims (iss, sub, aud, exp, nbf, iat, jti)
 - ✅ **Custom Claims**: Add any custom data to your JWT tokens
-- ✅ **RSA256 Signing**: Secure token signing with RSA256 algorithm
+- ✅ **Multiple Signing Algorithms**: Support for RS256, ES256, and HS256
 - ✅ **Token Verification**: Full token verification with public key validation
 - ✅ **Token Parsing**: Parse tokens without verification for debugging
+- ✅ **Key Rotation**: Automatic key rotation with grace period support
+- ✅ **Token Metrics**: Built-in metrics tracking for monitoring
+- ✅ **Audit Logging**: Comprehensive audit trail for all operations
+- ✅ **Token Chunking**: Split large tokens into manageable chunks
 - ✅ **Utility Functions**: Helper functions for common JWT operations
 - ✅ **Clean API**: Simple, intuitive API design
 - ✅ **Type Safety**: Strong typing with Go structs
@@ -121,6 +125,59 @@ func (jm *JWTManager) ParseToken(req ParseRequest) *ParseResponse
 ```
 Parses a JWT token without verification (useful for debugging).
 
+### Advanced Features
+
+#### Multiple Signing Methods
+```go
+// RSA (default)
+jwtManager := cjwt.NewJWTManager(privateKey, publicKey)
+
+// ECDSA
+ecdsaManager := cjwt.NewJWTManagerWithECDSA(ecdsaPrivateKey, ecdsaPublicKey)
+
+// HMAC
+hmacManager := cjwt.NewJWTManagerWithHMAC(hmacKey)
+```
+
+#### Key Rotation
+```go
+rotationReq := cjwt.KeyRotationRequest{
+    Algorithm:   cjwt.RS256,
+    GracePeriod: 24 * time.Hour,
+}
+rotationResp := jwtManager.RotateKey(rotationReq)
+```
+
+#### Token Metrics
+```go
+metrics := jwtManager.GetMetrics()
+fmt.Printf("Generated tokens: %d\n", metrics.GeneratedTokens)
+```
+
+#### Audit Logging
+```go
+auditLogs := jwtManager.GetAuditLogs()
+for _, log := range auditLogs {
+    fmt.Printf("Action: %s, Success: %t\n", log.Action, log.Success)
+}
+```
+
+#### Token Chunking
+```go
+chunkReq := cjwt.TokenChunkRequest{
+    Token:       largeToken,
+    MaxChunkSize: 1000,
+}
+chunks := jwtManager.ChunkToken(chunkReq)
+
+// Reassemble
+reassembleReq := cjwt.TokenReassembleRequest{
+    Chunks:  chunks.Chunks,
+    ChunkID: chunks.ChunkID,
+}
+reassembled := jwtManager.ReassembleToken(reassembleReq)
+```
+
 ### Utility Functions
 
 - `IsValidJWTFormat(token string) bool` - Check if string has JWT format
@@ -131,6 +188,9 @@ Parses a JWT token without verification (useful for debugging).
 - `HashSHA256(input string) string` - Create SHA256 hash
 - `GenerateRSAKeyPair(bits int) (*rsa.PrivateKey, *rsa.PublicKey, error)` - Generate RSA keys
 - `DefaultRSAKeyPair() (*rsa.PrivateKey, *rsa.PublicKey, error)` - Generate 2048-bit RSA keys
+- `GenerateECDSAKeyPair() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error)` - Generate ECDSA keys
+- `GenerateHMACKey(size int) ([]byte, error)` - Generate HMAC key
+- `DefaultHMACKey() ([]byte, error)` - Generate 256-bit HMAC key
 
 ## Examples
 

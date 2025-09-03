@@ -185,3 +185,327 @@ func TestUtilityFunctions(t *testing.T) {
 		t.Errorf("Expected hash %s, got %s", expectedHash, hash)
 	}
 }
+
+func TestMultipleSigningMethods(t *testing.T) {
+	// Test ECDSA
+	ecdsaPrivateKey, ecdsaPublicKey, err := cjwt.GenerateECDSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate ECDSA keys: %v", err)
+	}
+
+	ecdsaManager := cjwt.NewJWTManagerWithECDSA(ecdsaPrivateKey, ecdsaPublicKey)
+
+	req := cjwt.JWTRequest{
+		Issuer:    "test-app",
+		Subject:   "test-user",
+		Audience:  []string{"test-api"},
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+		CustomClaims: map[string]interface{}{
+			"role": "user",
+		},
+	}
+
+	// Test ECDSA token generation
+	resp, err := ecdsaManager.GenerateToken(req)
+	if err != nil {
+		t.Fatalf("Failed to generate ECDSA token: %v", err)
+	}
+
+	if resp.Token == "" {
+		t.Error("Generated ECDSA token is empty")
+	}
+
+	// Test HMAC
+	hmacKey, err := cjwt.DefaultHMACKey()
+	if err != nil {
+		t.Fatalf("Failed to generate HMAC key: %v", err)
+	}
+
+	hmacManager := cjwt.NewJWTManagerWithHMAC(hmacKey)
+
+	// Test HMAC token generation
+	hmacResp, err := hmacManager.GenerateToken(req)
+	if err != nil {
+		t.Fatalf("Failed to generate HMAC token: %v", err)
+	}
+
+	if hmacResp.Token == "" {
+		t.Error("Generated HMAC token is empty")
+	}
+}
+
+func TestTokenMetrics(t *testing.T) {
+	// Generate RSA key pair
+	privateKey, publicKey, err := cjwt.DefaultRSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate RSA keys: %v", err)
+	}
+
+	// Create JWT manager
+	jwtManager := cjwt.NewJWTManager(privateKey, publicKey)
+
+	// Initial metrics should be zero
+	initialMetrics := jwtManager.GetMetrics()
+	if initialMetrics.GeneratedTokens != 0 {
+		t.Errorf("Expected initial generated tokens to be 0, got %d", initialMetrics.GeneratedTokens)
+	}
+
+	// Generate a token
+	req := cjwt.JWTRequest{
+		Issuer:    "test-app",
+		Subject:   "test-user",
+		Audience:  []string{"test-api"},
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+
+	_, err = jwtManager.GenerateToken(req)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	// Check metrics after generation
+	metrics := jwtManager.GetMetrics()
+	if metrics.GeneratedTokens != 1 {
+		t.Errorf("Expected generated tokens to be 1, got %d", metrics.GeneratedTokens)
+	}
+
+	// Test reset metrics
+	jwtManager.ResetMetrics()
+	resetMetrics := jwtManager.GetMetrics()
+	if resetMetrics.GeneratedTokens != 0 {
+		t.Errorf("Expected reset generated tokens to be 0, got %d", resetMetrics.GeneratedTokens)
+	}
+}
+
+func TestAuditLogging(t *testing.T) {
+	// Generate RSA key pair
+	privateKey, publicKey, err := cjwt.DefaultRSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate RSA keys: %v", err)
+	}
+
+	// Create JWT manager
+	jwtManager := cjwt.NewJWTManager(privateKey, publicKey)
+
+	// Initial audit logs should be empty
+	initialLogs := jwtManager.GetAuditLogs()
+	if len(initialLogs) != 0 {
+		t.Errorf("Expected initial audit logs to be empty, got %d logs", len(initialLogs))
+	}
+
+	// Generate a token to create audit log
+	req := cjwt.JWTRequest{
+		Issuer:    "test-app",
+		Subject:   "test-user",
+		Audience:  []string{"test-api"},
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+
+	_, err = jwtManager.GenerateToken(req)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	// Check audit logs after generation
+	logs := jwtManager.GetAuditLogs()
+	if len(logs) == 0 {
+		t.Error("Expected audit logs to contain entries after token generation")
+	}
+
+	// Check the last log entry
+	lastLog := logs[len(logs)-1]
+	if lastLog.Action != "generate" {
+		t.Errorf("Expected last log action to be 'generate', got '%s'", lastLog.Action)
+	}
+	if !lastLog.Success {
+		t.Error("Expected last log to be successful")
+	}
+	if lastLog.UserID != "test-user" {
+		t.Errorf("Expected last log user ID to be 'test-user', got '%s'", lastLog.UserID)
+	}
+
+	// Test clear audit logs
+	jwtManager.ClearAuditLogs()
+	clearedLogs := jwtManager.GetAuditLogs()
+	if len(clearedLogs) != 0 {
+		t.Errorf("Expected cleared audit logs to be empty, got %d logs", len(clearedLogs))
+	}
+}
+
+func TestKeyRotation(t *testing.T) {
+	// Generate RSA key pair
+	privateKey, publicKey, err := cjwt.DefaultRSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate RSA keys: %v", err)
+	}
+
+	// Create JWT manager
+	jwtManager := cjwt.NewJWTManager(privateKey, publicKey)
+
+	// Get initial key info
+	initialKeyInfo := jwtManager.GetKeyInfo()
+	if initialKeyInfo.KeyID == "" {
+		t.Error("Expected initial key ID to be set")
+	}
+	if initialKeyInfo.Algorithm != "RS256" {
+		t.Errorf("Expected initial algorithm to be 'RS256', got '%s'", initialKeyInfo.Algorithm)
+	}
+
+	// Test key rotation
+	rotationReq := cjwt.KeyRotationRequest{
+		Algorithm:   cjwt.RS256,
+		GracePeriod: 24 * time.Hour,
+	}
+
+	rotationResp := jwtManager.RotateKey(rotationReq)
+	if !rotationResp.Success {
+		t.Errorf("Key rotation failed: %s", rotationResp.Error)
+	}
+
+	if rotationResp.NewKeyID == "" {
+		t.Error("Expected new key ID to be set")
+	}
+	if rotationResp.OldKeyID != initialKeyInfo.KeyID {
+		t.Errorf("Expected old key ID to match initial key ID")
+	}
+
+	// Get updated key info
+	updatedKeyInfo := jwtManager.GetKeyInfo()
+	if updatedKeyInfo.KeyID != rotationResp.NewKeyID {
+		t.Errorf("Expected updated key ID to match new key ID")
+	}
+}
+
+func TestTokenChunking(t *testing.T) {
+	// Generate RSA key pair
+	privateKey, publicKey, err := cjwt.DefaultRSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate RSA keys: %v", err)
+	}
+
+	// Create JWT manager
+	jwtManager := cjwt.NewJWTManager(privateKey, publicKey)
+
+	// Generate a token
+	req := cjwt.JWTRequest{
+		Issuer:    "test-app",
+		Subject:   "test-user",
+		Audience:  []string{"test-api"},
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+		CustomClaims: map[string]interface{}{
+			"large_data": "This is a large piece of data that will make the token bigger for chunking testing purposes. " +
+				"We need enough data to ensure the token gets split into multiple chunks when we test the chunking functionality.",
+		},
+	}
+
+	resp, err := jwtManager.GenerateToken(req)
+	if err != nil {
+		t.Fatalf("Failed to generate token: %v", err)
+	}
+
+	// Test token chunking
+	chunkReq := cjwt.TokenChunkRequest{
+		Token:        resp.Token,
+		MaxChunkSize: 100,
+	}
+
+	chunkResp := jwtManager.ChunkToken(chunkReq)
+	if chunkResp.TotalChunks == 0 {
+		t.Error("Expected token to be chunked into multiple pieces")
+	}
+	if chunkResp.OriginalSize == 0 {
+		t.Error("Expected original size to be greater than 0")
+	}
+	if chunkResp.ChunkID == "" {
+		t.Error("Expected chunk ID to be set")
+	}
+
+	// Test token reassembly
+	reassembleReq := cjwt.TokenReassembleRequest{
+		Chunks:  chunkResp.Chunks,
+		ChunkID: chunkResp.ChunkID,
+	}
+
+	reassembleResp := jwtManager.ReassembleToken(reassembleReq)
+	if !reassembleResp.Success {
+		t.Errorf("Token reassembly failed: %s", reassembleResp.Error)
+	}
+	if reassembleResp.Token != resp.Token {
+		t.Error("Reassembled token does not match original token")
+	}
+	if reassembleResp.ReassembledSize != chunkResp.OriginalSize {
+		t.Errorf("Expected reassembled size to match original size")
+	}
+}
+
+func TestTokenChunkingEmptyChunks(t *testing.T) {
+	// Generate RSA key pair
+	privateKey, publicKey, err := cjwt.DefaultRSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate RSA keys: %v", err)
+	}
+
+	// Create JWT manager
+	jwtManager := cjwt.NewJWTManager(privateKey, publicKey)
+
+	// Test reassembly with empty chunks
+	reassembleReq := cjwt.TokenReassembleRequest{
+		Chunks:  []string{},
+		ChunkID: "test-id",
+	}
+
+	reassembleResp := jwtManager.ReassembleToken(reassembleReq)
+	if reassembleResp.Success {
+		t.Error("Expected reassembly with empty chunks to fail")
+	}
+	if reassembleResp.Error == "" {
+		t.Error("Expected error message for empty chunks")
+	}
+}
+
+func TestKeyGeneration(t *testing.T) {
+	// Test RSA key generation
+	rsaPrivateKey, rsaPublicKey, err := cjwt.GenerateRSAKeyPair(2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key pair: %v", err)
+	}
+	if rsaPrivateKey == nil || rsaPublicKey == nil {
+		t.Error("Generated RSA keys should not be nil")
+	}
+
+	// Test default RSA key generation
+	defaultRsaPrivateKey, defaultRsaPublicKey, err := cjwt.DefaultRSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate default RSA key pair: %v", err)
+	}
+	if defaultRsaPrivateKey == nil || defaultRsaPublicKey == nil {
+		t.Error("Generated default RSA keys should not be nil")
+	}
+
+	// Test ECDSA key generation
+	ecdsaPrivateKey, ecdsaPublicKey, err := cjwt.GenerateECDSAKeyPair()
+	if err != nil {
+		t.Fatalf("Failed to generate ECDSA key pair: %v", err)
+	}
+	if ecdsaPrivateKey == nil || ecdsaPublicKey == nil {
+		t.Error("Generated ECDSA keys should not be nil")
+	}
+
+	// Test HMAC key generation
+	hmacKey, err := cjwt.GenerateHMACKey(32)
+	if err != nil {
+		t.Fatalf("Failed to generate HMAC key: %v", err)
+	}
+	if len(hmacKey) != 32 {
+		t.Errorf("Expected HMAC key length to be 32, got %d", len(hmacKey))
+	}
+
+	// Test default HMAC key generation
+	defaultHmacKey, err := cjwt.DefaultHMACKey()
+	if err != nil {
+		t.Fatalf("Failed to generate default HMAC key: %v", err)
+	}
+	if len(defaultHmacKey) != 32 {
+		t.Errorf("Expected default HMAC key length to be 32, got %d", len(defaultHmacKey))
+	}
+}

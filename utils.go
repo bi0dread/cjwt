@@ -1,6 +1,8 @@
 package cjwt
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -112,4 +114,31 @@ func GenerateRSAKeyPair(bits int) (*rsa.PrivateKey, *rsa.PublicKey, error) {
 // DefaultRSAKeyPair generates a 2048-bit RSA key pair (recommended for JWT)
 func DefaultRSAKeyPair() (*rsa.PrivateKey, *rsa.PublicKey, error) {
 	return GenerateRSAKeyPair(2048)
+}
+
+// GenerateECDSAKeyPair generates a new ECDSA key pair for JWT signing
+func GenerateECDSAKeyPair() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	return privateKey, &privateKey.PublicKey, nil
+}
+
+// GenerateHMACKey generates a new HMAC key for JWT signing
+func GenerateHMACKey(size int) ([]byte, error) {
+	if size <= 0 {
+		size = 32 // Default 256-bit key
+	}
+	key := make([]byte, size)
+	_, err := rand.Read(key)
+	if err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+// DefaultHMACKey generates a 256-bit HMAC key
+func DefaultHMACKey() ([]byte, error) {
+	return GenerateHMACKey(32)
 }
