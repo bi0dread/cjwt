@@ -287,6 +287,11 @@ func (jm *JWTManager) GenerateTokenWithMethod(req JWTRequest, method SigningMeth
 		Claims:    claims,
 	})
 
+	// Update metrics
+	jm.updateMetrics(func(m *TokenMetrics) {
+		m.GeneratedTokens++
+	})
+
 	return response, nil
 }
 
@@ -310,20 +315,33 @@ func (jm *JWTManager) logAuditEvent(log TokenAuditLog) {
 
 // VerifyToken verifies a JWT token and returns its claims
 func (jm *JWTManager) VerifyToken(req VerifyRequest) *VerifyResponse {
-	if jm.publicKey == nil {
+	// Determine which key to use for verification
+	var verificationKey interface{}
+	var expectedMethod jwt.SigningMethod
+
+	if jm.publicKey != nil {
+		verificationKey = jm.publicKey
+		expectedMethod = jwt.SigningMethodRS256
+	} else if jm.ecdsaPublicKey != nil {
+		verificationKey = jm.ecdsaPublicKey
+		expectedMethod = jwt.SigningMethodES256
+	} else if jm.hmacKey != nil {
+		verificationKey = jm.hmacKey
+		expectedMethod = jwt.SigningMethodHS256
+	} else {
 		return &VerifyResponse{
 			Valid: false,
-			Error: "public key is required for token verification",
+			Error: "no verification key available",
 		}
 	}
 
 	// Parse and verify the token
 	token, err := jwt.Parse(req.Token, func(token *jwt.Token) (interface{}, error) {
-		// Verify the signing method
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		// Verify the signing method matches what we expect
+		if token.Method != expectedMethod {
+			return nil, fmt.Errorf("unexpected signing method: %v, expected: %v", token.Header["alg"], expectedMethod.Alg())
 		}
-		return jm.publicKey, nil
+		return verificationKey, nil
 	})
 
 	response := &VerifyResponse{}
@@ -345,6 +363,11 @@ func (jm *JWTManager) VerifyToken(req VerifyRequest) *VerifyResponse {
 		response.Valid = true
 		response.Claims = claims
 		response.CustomClaims = make(map[string]interface{})
+
+		// Update metrics for successful verification
+		jm.updateMetrics(func(m *TokenMetrics) {
+			m.VerifiedTokens++
+		})
 
 		// Extract standard claims
 		if iss, ok := claims["iss"].(string); ok {
